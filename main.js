@@ -1,5 +1,7 @@
+// main.js
 import blessed from "blessed";
 import contrib from "blessed-contrib";
+
 import { getAllNfts, getTribes } from "./api/fetchData.js";
 import { fightNft } from "./api/fightNft.js";
 import { levelUpNft } from "./api/levelUpNft.js";
@@ -11,202 +13,299 @@ import {
 import { trainNft } from "./api/trainNft.js";
 import { scheduleAt } from "./utils/timer.js";
 
+const BACKOFF_INITIAL = 60_000; // 1 minute
+const BACKOFF_MAX = 3_600_000; // 1 hour
+
+// ─── UI Setup ─────────────────────────────────────────────────────────────────
 const screen = blessed.screen();
 const grid = new contrib.grid({ rows: 12, cols: 12, screen });
 
-const nftBoxTitle = "NFT Status Table (Use ↑↓ to scroll, Tab to switch)";
-const logBoxTitle = "Action Logs (↑↓ scroll, Tab to switch)";
+const nftTableTitle = "NFT Status";
 const tableBox = grid.set(0, 0, 8, 12, contrib.table, {
-  keys: true,
-  vi: true, // allows hjkl navigation
-  interactive: true,
+  keys: false,
+  vi: false,
+  interactive: false,
   fg: "white",
-  label: `${nftBoxTitle} [FOCUSED]`,
+  // selectedFg: "black",
+  // selectedBg: "green",
+
+  label: nftTableTitle,
   columnWidth: [10, 12, 10, 20, 20, 20],
 });
-
+const logsTitle = "Action Logs [↑↓ scroll]";
 const logBox = grid.set(8, 0, 4, 12, blessed.list, {
-  label: logBoxTitle,
+  label: logsTitle,
   keys: true,
   vi: true,
   mouse: true,
   interactive: true,
   scrollable: true,
   alwaysScroll: true,
+  tags: true,
   border: "line",
   style: {
     fg: "green",
-    selected: {
-      bg: "yellow",
-      fg: "black",
-    },
-    item: {
-      hover: {
-        bg: "gray",
-      },
-    },
-    scrollbar: {
-      bg: "yellow",
-    },
+    bg: "black",
+    selected: { bg: "grey" },
+    item: { hover: { bg: "grey" } },
+    scrollbar: { bg: "blue" },
   },
 });
 
-logBox.setScrollPerc(100);
+// Key bindings
+screen.key(["escape", "q", "C-c"], () => process.exit(0));
 
+// let focusMode = "table";
+logBox.focus();
+// screen.key(["tab"], () => {
+//   if (focusMode === "table") {
+//     logBox.focus();
+//     focusMode = "log";
+//     tableBox.setLabel(nftTableTitle);
+//     logBox.setLabel(`${logsTitle} [FOCUSED]`);
+//   } else {
+//     tableBox.focus();
+//     focusMode = "table";
+//     tableBox.setLabel(`${nftTableTitle} [FOCUSED]`);
+//     logBox.setLabel(logsTitle);
+//   }
+//   screen.render();
+// });
+
+// scroll keys for logBox
 logBox.key(["up", "k"], () => {
   logBox.scroll(-1);
   screen.render();
 });
-
 logBox.key(["down", "j"], () => {
   logBox.scroll(1);
   screen.render();
 });
-
 logBox.key(["pageup"], () => {
   logBox.scroll(-10);
   screen.render();
 });
-
 logBox.key(["pagedown"], () => {
   logBox.scroll(10);
   screen.render();
 });
 
-screen.key(["escape", "q", "C-c"], () => process.exit(0));
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-let currentFocus = "table";
-tableBox.focus();
+const formatDateTime = (ts) => {
+  if (!ts) return "ready";
+  const d = new Date(ts),
+    t = d.toLocaleTimeString(),
+    day = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${t} (${day})`;
+};
 
-// Allow switching focus with tab
-screen.key(["tab"], () => {
-  if (currentFocus === "table") {
-    logBox.focus();
-    currentFocus = "log";
-    tableBox.setLabel(nftBoxTitle);
-    logBox.setLabel(`${logBoxTitle} [FOCUSED]`);
-  } else {
-    tableBox.focus();
-    currentFocus = "table";
-    tableBox.setLabel(`${nftBoxTitle} [FOCUSED]`);
-    logBox.setLabel(logBoxTitle);
-  }
+const logDateTime = (ts) =>
+  new Date(ts).toLocaleTimeString(undefined, {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 
-  screen.render();
-});
-
-const logAction = (tokenId, action) => {
-  const time = new Date().toLocaleTimeString();
-  const messages = {
-    TRAIN: `Token ${tokenId} started training @ ${time}`,
-    FIGHT: `Token ${tokenId} entered battle @ ${time}`,
-    LEVEL_UP: `Token ${tokenId} leveled up @ ${time}`,
+const logAction = (tokenId, action, isError = false) => {
+  const now = formatDateTime(Date.now());
+  const texts = {
+    TRAIN: `Token ${tokenId} → started training @ ${now}`,
+    FIGHT: `Token ${tokenId} → started fight @ ${now}`,
+    LEVEL_UP: `Token ${tokenId} → leveled up @ ${now}`,
   };
-  logBox.addItem(messages[action] || `Token ${tokenId} did: ${action}`);
+  let text = `${texts[action]}` || `Token ${tokenId} → ${action}`;
+  if (isError) {
+    text = `{red-fg}[ERROR] ${text}{/red-fg}`;
+  }
+  logBox.addItem(`{grey-fg}[${logDateTime(Date.now())}]{/grey-fg} ${text}`);
   logBox.scrollTo(logBox.items.length - 1);
   screen.render();
 };
 
-const formatDateTime = (timestamp) => {
-  if (!timestamp) return "ready";
-  const date = new Date(timestamp);
-  const time = date.toLocaleTimeString();
-  const day = date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-  return `${time} (${day})`;
-};
+// ─── Scheduling Loops ─────────────────────────────────────────────────────────
 
-const printStatusTable = async () => {
-  const [nfts, tribes, activeTrainings, activeFights, activeLevelUps] =
-    await Promise.all([
-      getAllNfts(),
-      getTribes(),
-      getActiveTrainings(),
-      getActiveFights(),
-      getActiveLevelUps(),
-    ]);
+// Keep track so we only schedule each NFT once
+const scheduledNFTs = new Set();
 
-  const rows = [];
+async function startLoopsForNFT(nft, tribes, at, af, al) {
+  const nftId = nft.id;
 
-  for (const nft of nfts) {
-    const nftId = nft.id;
-    const myTribe = tribes.find((t) => t.id === nft.tribeId);
-    const opponent = tribes.find(
-      (t) => t.name === myTribe?.name && t.templeId !== myTribe?.templeId
-    );
+  const now = Date.now();
+  const tokenId = nft.tokenId;
+  const myTribe = tribes.find((t) => t.id === nft.tribeId);
+  const opponent = tribes.find(
+    (t) => t.name === myTribe?.name && t.templeId !== myTribe?.templeId
+  );
+  if (!opponent) return;
 
-    rows.push([
+  // TRAIN loop
+  const TRAIN_KEY = `${nftId}-TRAIN`;
+  if (!scheduledNFTs.has(TRAIN_KEY)) {
+    scheduledNFTs.add(TRAIN_KEY);
+    let trainBackoff = BACKOFF_INITIAL;
+
+    const trainLoop = async () => {
+      try {
+        const next = await trainNft(nftId);
+        logAction(tokenId, "TRAIN");
+        redrawUI();
+        trainBackoff = BACKOFF_INITIAL; // reset on success
+        scheduleAt(next, trainLoop);
+      } catch (err) {
+        // schedule retry with backoff
+        const when = Date.now() + trainBackoff;
+        scheduleAt(when, trainLoop);
+        trainBackoff = Math.min(trainBackoff * 2, BACKOFF_MAX);
+        logAction(
+          tokenId,
+          `TRAINING FAILED - RETRYING @ ${formatDateTime(when)}`,
+          true
+        );
+      }
+    };
+
+    if ((at[nftId] || 0) > now) scheduleAt(at[nftId] + 1_000, trainLoop);
+    else trainLoop();
+  }
+
+  // FIGHT loop
+  const FIGHT_KEY = `${nftId}-FIGHT`;
+  if (!scheduledNFTs.has(FIGHT_KEY)) {
+    scheduledNFTs.add(FIGHT_KEY);
+    let fightBackoff = BACKOFF_INITIAL;
+
+    const fightLoop = async () => {
+      try {
+        if (nft.tribeFightsCount >= nft.maxTribeFights) return;
+        const next = await fightNft(nftId, opponent.id);
+        logAction(tokenId, "FIGHT");
+        redrawUI();
+        fightBackoff = BACKOFF_INITIAL;
+        scheduleAt(next, fightLoop);
+      } catch (err) {
+        // schedule retry with backoff
+        const when = Date.now() + fightBackoff;
+        scheduleAt(when, fightLoop);
+        fightBackoff = Math.min(fightBackoff * 2, BACKOFF_MAX);
+        logAction(
+          tokenId,
+          `FIGHTING FAILED - RETRYING @ ${formatDateTime(when)}`,
+          true
+        );
+      }
+    };
+
+    if ((af[nftId] || 0) > now) scheduleAt(af[nftId] + 1_000, fightLoop);
+    else fightLoop();
+  }
+
+  // LEVEL-UP loop
+  const LEVEL_KEY = `${nftId}-LEVEL_UP`;
+  if (!scheduledNFTs.has(LEVEL_KEY)) {
+    scheduledNFTs.add(LEVEL_KEY);
+    let levelBackoff = BACKOFF_INITIAL;
+
+    const levelLoop = async () => {
+      try {
+        if (nft.xp < nft.requiredXp) return;
+        const next = await levelUpNft(nftId);
+        logAction(tokenId, "LEVEL_UP");
+        redrawUI();
+        levelBackoff = BACKOFF_INITIAL;
+        scheduleAt(next, levelLoop);
+      } catch (err) {
+        const when = Date.now() + levelBackoff;
+        scheduleAt(when, levelLoop);
+        levelBackoff = Math.min(levelBackoff * 2, BACKOFF_MAX);
+        logAction(
+          tokenId,
+          `LEVEL UP FAILED - RETRYING @ ${formatDateTime(when)}`,
+          true
+        );
+      }
+    };
+
+    if ((al[nftId] || 0) > now) scheduleAt(al[nftId] + 1_000, levelLoop);
+    else levelLoop();
+  }
+}
+
+// ─── UI Refresh ───────────────────────────────────────────────────────────────
+
+async function refreshUI() {
+  const [nfts, tribes, at, af, al] = await Promise.all([
+    getAllNfts(),
+    getTribes(),
+    getActiveTrainings(),
+    getActiveFights(),
+    getActiveLevelUps(),
+  ]);
+
+  // rebuild table
+  const data = nfts.map((nft) => {
+    return [
       nft.tokenId,
       `${nft.xp}/${nft.requiredXp}`,
       `${nft.tribeFightsCount}/${nft.maxTribeFights}`,
-      activeTrainings[nftId] ? formatDateTime(activeTrainings[nftId]) : "ready",
-      activeFights[nftId] ? formatDateTime(activeFights[nftId]) : "ready",
-      activeLevelUps[nftId]
-        ? formatDateTime(activeLevelUps[nftId])
+      at[nft.id] ? formatDateTime(at[nft.id]) : "ready",
+      af[nft.id] ? formatDateTime(af[nft.id]) : "ready",
+      al[nft.id]
+        ? formatDateTime(al[nft.id])
         : nft.xp >= nft.requiredXp
         ? "ready"
         : "waiting",
-    ]);
+    ];
+  });
 
-    // Training
-    const trainNow = async () => {
-      const existingEnd = activeTrainings[nftId];
-      if (existingEnd && existingEnd > Date.now())
-        return scheduleAt(existingEnd + 1000, trainNow);
-      const nextTrain = await trainNft(nftId);
-      if (nextTrain) {
-        logAction(nft.tokenId, "TRAIN");
-        scheduleAt(nextTrain, trainNow);
-        await printStatusTable();
-      }
-    };
-    await trainNow();
+  tableBox.setData({
+    headers: ["Token", "XP", "Fights", "Training", "Fight", "LevelUp"],
+    data,
+  });
 
-    // Fight
-    const fightLoop = async () => {
-      if (nft.tribeFightsCount >= nft.maxTribeFights) return;
-      const existingEnd = activeFights[nftId];
-      if (existingEnd && existingEnd > Date.now())
-        return scheduleAt(existingEnd + 1000, fightLoop);
-      const nextFight = await fightNft(nftId, opponent.id);
-      if (nextFight) {
-        logAction(nft.tokenId, "FIGHT");
-        scheduleAt(nextFight, fightLoop);
-        await printStatusTable();
-      }
-    };
-    await fightLoop();
-
-    // Level up
-    const levelNow = async () => {
-      const existingEnd = activeLevelUps[nftId];
-      if (existingEnd && existingEnd > Date.now())
-        return scheduleAt(existingEnd + 1000, levelNow);
-      if (nft.xp >= nft.requiredXp) {
-        const levelEnd = await levelUpNft(nftId);
-        if (levelEnd) {
-          logAction(nft.tokenId, "LEVEL_UP");
-          scheduleAt(levelEnd, levelNow);
-          await printStatusTable();
-        }
-      }
-    };
-    await levelNow();
+  // schedule loops for any new NFTs
+  for (const nft of nfts) {
+    await startLoopsForNFT(nft, tribes, at, af, al);
   }
+
+  screen.render();
+}
+
+// ─── Draw ─────────────────────────────────────────────────────────────────────
+// only updates the table & logBox (no scheduling, no recursion)
+async function redrawUI() {
+  const [nfts, at, af, al] = await Promise.all([
+    getAllNfts(),
+    getActiveTrainings(),
+    getActiveFights(),
+    getActiveLevelUps(),
+  ]);
+
+  // rebuild table data
+  const rows = nfts.map((nft) => [
+    nft.tokenId,
+    `${nft.xp}/${nft.requiredXp}`,
+    `${nft.tribeFightsCount}/${nft.maxTribeFights}`,
+    at[nft.id] ? formatDateTime(at[nft.id]) : "ready",
+    af[nft.id] ? formatDateTime(af[nft.id]) : "ready",
+    al[nft.id]
+      ? formatDateTime(al[nft.id])
+      : nft.xp >= nft.requiredXp
+      ? "ready"
+      : "waiting",
+  ]);
 
   tableBox.setData({
     headers: ["Token", "XP", "Fights", "Training", "Fight", "LevelUp"],
     data: rows,
   });
 
-  logBox.addItem(
-    "Starting...Press Tab to switch focus between the table and logs."
-  );
-
   screen.render();
-};
+}
 
-// Kick it off
-await printStatusTable();
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
+(async () => {
+  await refreshUI(); // initial draw + schedule loops
+  setInterval(refreshUI, 15000); // update table every 15s
+})();
