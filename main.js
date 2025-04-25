@@ -9,6 +9,17 @@ import {
 import { trainNft } from "./api/trainNft.js";
 import { scheduleAt } from "./utils/timer.js";
 
+const formatDateTime = (timestamp) => {
+  if (!timestamp) return "ready";
+  const date = new Date(timestamp);
+  const time = date.toLocaleTimeString();
+  const day = date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  return `${time} (${day})`;
+};
+
 (async () => {
   const [nfts, tribes, activeTrainings, activeFights, activeLevelUps] =
     await Promise.all([
@@ -34,19 +45,13 @@ import { scheduleAt } from "./utils/timer.js";
       XP: `${nft.xp}/${nft.requiredXp}`,
       Fights: `${nft.tribeFightsCount}/${nft.maxTribeFights}`,
       Training: activeTrainings[nftId]
-        ? new Date(activeTrainings[nftId]).toLocaleTimeString("en-AU", {
-            timeZone: "Australia/Brisbane",
-          })
+        ? formatDateTime(activeTrainings[nftId])
         : "ready",
       Fight: activeFights[nftId]
-        ? new Date(activeFights[nftId]).toLocaleTimeString("en-AU", {
-            timeZone: "Australia/Brisbane",
-          })
+        ? formatDateTime(activeFights[nftId])
         : "ready",
       LevelUp: activeLevelUps[nftId]
-        ? new Date(activeLevelUps[nftId]).toLocaleTimeString("en-AU", {
-            timeZone: "Australia/Brisbane",
-          })
+        ? formatDateTime(activeLevelUps[nftId])
         : nft.xp >= nft.requiredXp
         ? "ready"
         : "waiting",
