@@ -230,7 +230,7 @@ async function refreshUI() {
   const data = nfts.map((nft) => {
     return [
       nft.tokenId,
-      `${nft.xp}/${nft.requiredXp}`,
+      `${nft.level} (${nft.xp}/${nft.requiredXp})`,
       `${nft.tribeFightsCount}/${nft.maxTribeFights}`,
       at[nft.id] ? formatDateTime(at[nft.id]) : "ready",
       af[nft.id] ? formatDateTime(af[nft.id]) : "ready",
@@ -238,12 +238,19 @@ async function refreshUI() {
         ? formatDateTime(al[nft.id])
         : nft.xp >= nft.requiredXp
         ? "ready"
-        : "waiting",
+        : "available | need XP",
     ];
   });
 
   tableBox.setData({
-    headers: ["Token", "XP", "Fights", "Training", "Fight", "LevelUp"],
+    headers: [
+      "Token",
+      "Lvl (XP)",
+      "Fights",
+      "Next Training",
+      "Next Fight",
+      "Next Level Up",
+    ],
     data,
   });
 
@@ -268,7 +275,7 @@ async function redrawUI() {
   // rebuild table data
   const rows = nfts.map((nft) => [
     nft.tokenId,
-    `${nft.xp}/${nft.requiredXp}`,
+    `${nft.level} (${nft.xp}/${nft.requiredXp})`,
     `${nft.tribeFightsCount}/${nft.maxTribeFights}`,
     at[nft.id] ? formatDateTime(at[nft.id]) : "ready",
     af[nft.id] ? formatDateTime(af[nft.id]) : "ready",
@@ -276,11 +283,18 @@ async function redrawUI() {
       ? formatDateTime(al[nft.id])
       : nft.xp >= nft.requiredXp
       ? "ready"
-      : "waiting",
+      : "available | need XP",
   ]);
 
   tableBox.setData({
-    headers: ["Token", "XP", "Fights", "Training", "Fight", "LevelUp"],
+    headers: [
+      "Token",
+      "Lvl (XP)",
+      "Fights",
+      "Next Training",
+      "Next Fight",
+      "Next Level Up",
+    ],
     data: rows,
   });
 
