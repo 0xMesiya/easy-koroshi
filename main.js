@@ -26,8 +26,6 @@ const tableBox = grid.set(0, 0, 8, 12, contrib.table, {
   vi: false,
   interactive: false,
   fg: "white",
-  // selectedFg: "black",
-  // selectedBg: "green",
 
   label: nftTableTitle,
   columnWidth: [10, 12, 10, 20, 20, 20],
@@ -55,22 +53,7 @@ const logBox = grid.set(8, 0, 4, 12, blessed.list, {
 // Key bindings
 screen.key(["escape", "q", "C-c"], () => process.exit(0));
 
-// let focusMode = "table";
 logBox.focus();
-// screen.key(["tab"], () => {
-//   if (focusMode === "table") {
-//     logBox.focus();
-//     focusMode = "log";
-//     tableBox.setLabel(nftTableTitle);
-//     logBox.setLabel(`${logsTitle} [FOCUSED]`);
-//   } else {
-//     tableBox.focus();
-//     focusMode = "table";
-//     tableBox.setLabel(`${nftTableTitle} [FOCUSED]`);
-//     logBox.setLabel(logsTitle);
-//   }
-//   screen.render();
-// });
 
 // scroll keys for logBox
 logBox.key(["up", "k"], () => {
@@ -307,5 +290,5 @@ async function redrawUI() {
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 (async () => {
   await refreshUI(); // initial draw + schedule loops
-  setInterval(refreshUI, 15000); // update table every 15s
+  setInterval(refreshUI, 60000); // update table every 60s, dont need this but it is a fallback
 })();
