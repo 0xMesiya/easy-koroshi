@@ -155,6 +155,16 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
 
     const trainLoop = async () => {
       try {
+        const [nfts] = await getAllNfts();
+        const freshNft = nfts.find((n) => n.id === nftId);
+        if (!freshNft) {
+          logAction(
+            tokenId,
+            `NFT NO LONGER FOUND → STOPPING THIS TRAINING LOOP`
+          );
+          scheduledNFTs.delete(TRAIN_KEY);
+          return;
+        }
         const next = await trainNft(nftId);
         logAction(tokenId, "TRAIN");
         redrawUI();
@@ -194,7 +204,15 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
 
     const fightLoop = async () => {
       try {
-        if (nft.tribeFightsCount >= nft.maxTribeFights) {
+        const [nfts] = await getAllNfts();
+        const freshNft = nfts.find((n) => n.id === nftId);
+        if (!freshNft) {
+          logAction(tokenId, `NFT NO LONGER FOUND → STOPPING THIS FIGHT LOOP`);
+          scheduledNFTs.delete(FIGHT_KEY);
+          return;
+        }
+
+        if (freshNft.tribeFightsCount >= freshNft.maxTribeFights) {
           scheduleAt(resetTime + 1_000, fightLoop);
           return;
         }
@@ -237,7 +255,17 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
 
     const levelLoop = async () => {
       try {
-        if (nft.xp < nft.requiredXp) {
+        const [nfts] = await getAllNfts();
+        const freshNft = nfts.find((n) => n.id === nftId);
+        if (!freshNft) {
+          logAction(
+            tokenId,
+            `NFT NO LONGER FOUND → STOPPING THIS LEVEL UP LOOP`
+          );
+          scheduledNFTs.delete(LEVEL_KEY);
+          return;
+        }
+        if (freshNft.xp < freshNft.requiredXp) {
           scheduledNFTs.delete(`${nftId}-LEVEL_UP`);
           logAction(
             tokenId,
