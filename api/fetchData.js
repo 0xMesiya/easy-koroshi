@@ -17,4 +17,6 @@ export const getTribes = () =>
   apiGet("https://www.api.thekoroshi.com/api/trpc/getTribes");
 export const getTemples = () =>
   apiGet("https://www.api.thekoroshi.com/api/trpc/getTemples");
+export const getInfo = () =>
+  apiGet("https://www.api.thekoroshi.com/api/trpc/getInfos");
 export const apiGetWrapper = apiGet;

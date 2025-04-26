@@ -1,8 +1,7 @@
-// main.js
 import blessed from "blessed";
 import contrib from "blessed-contrib";
 
-import { getAllNfts, getTribes } from "./api/fetchData.js";
+import { getAllNfts, getInfo, getTribes } from "./api/fetchData.js";
 import { fightNft } from "./api/fightNft.js";
 import { levelUpNft } from "./api/levelUpNft.js";
 import {
@@ -12,27 +11,41 @@ import {
 } from "./api/status.js";
 import { trainNft } from "./api/trainNft.js";
 import { scheduleAt } from "./utils/timer.js";
+import { formatDateTime, logDateTime } from "./utils/utils.js";
 
 const BACKOFF_INITIAL = 60_000; // 1 minute
 const BACKOFF_MAX = 3_600_000; // 1 hour
 
 // ─── UI Setup ─────────────────────────────────────────────────────────────────
 const screen = blessed.screen();
+
 const grid = new contrib.grid({ rows: 12, cols: 12, screen });
 
-const nftTableTitle = "NFT Status";
-const tableBox = grid.set(0, 0, 8, 12, contrib.table, {
+grid.set(0, 0, 1, 12, blessed.box, {
+  label: "{bold}Koroshi Bot!{/bold}",
+  border: "line",
+  style: {
+    border: { fg: "magenta" },
+    bg: "black",
+  },
+  content:
+    "{cyan-fg}Built by /0xMesiya{/cyan-fg} | {yellow-fg}DONATE: 0x8465305Fb28F3Ef16879c960e997Ad74689a2B3d{/yellow-fg}",
+  tags: true,
+});
+
+const nftTableTitle = "NFT Status [↑↓ scroll, Tab to switch]";
+const tableBox = grid.set(1, 0, 6, 12, contrib.table, {
   keys: false,
   vi: false,
-  interactive: false,
+  interactive: true,
   fg: "white",
 
   label: nftTableTitle,
-  columnWidth: [10, 12, 10, 20, 20, 20],
+  columnWidth: [6, 20, 20, 20, 20, 20],
 });
-const logsTitle = "Action Logs [↑↓ scroll]";
-const logBox = grid.set(8, 0, 4, 12, blessed.list, {
-  label: logsTitle,
+const logsTitle = "Action Logs [↑↓ scroll, Tab to switch]";
+const logBox = grid.set(7, 0, 5, 12, blessed.list, {
+  label: `${logsTitle} [FOCUSED]`,
   keys: true,
   vi: true,
   mouse: true,
@@ -50,10 +63,36 @@ const logBox = grid.set(8, 0, 4, 12, blessed.list, {
   },
 });
 
+// Set initial logs
+logBox.addItem(
+  `{grey-fg}[${logDateTime(
+    Date.now()
+  )}]{/grey-fg}{green-fg} Koroshi Bot started...Fetching data and scheduling{/green-fg}`
+);
+logBox.scrollTo(logBox.items.length - 1);
+
 // Key bindings
 screen.key(["escape", "q", "C-c"], () => process.exit(0));
 
+let currentFocus = "log";
 logBox.focus();
+
+// Allow switching focus with tab
+screen.key(["tab"], () => {
+  if (currentFocus === "table") {
+    logBox.focus();
+    currentFocus = "log";
+    tableBox.setLabel(nftTableTitle);
+    logBox.setLabel(`${logsTitle} [FOCUSED]`);
+  } else {
+    tableBox.focus();
+    currentFocus = "table";
+    tableBox.setLabel(`${nftTableTitle} [FOCUSED]`);
+    logBox.setLabel(logsTitle);
+  }
+
+  screen.render();
+});
 
 // scroll keys for logBox
 logBox.key(["up", "k"], () => {
@@ -75,22 +114,6 @@ logBox.key(["pagedown"], () => {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const formatDateTime = (ts) => {
-  if (!ts) return "ready";
-  const d = new Date(ts),
-    t = d.toLocaleTimeString(),
-    day = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  return `${t} (${day})`;
-};
-
-const logDateTime = (ts) =>
-  new Date(ts).toLocaleTimeString(undefined, {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-
 const logAction = (tokenId, action, isError = false) => {
   const now = formatDateTime(Date.now());
   const texts = {
@@ -98,7 +121,7 @@ const logAction = (tokenId, action, isError = false) => {
     FIGHT: `Token ${tokenId} → started fight @ ${now}`,
     LEVEL_UP: `Token ${tokenId} → leveled up @ ${now}`,
   };
-  let text = `${texts[action]}` || `Token ${tokenId} → ${action}`;
+  let text = texts[action] || `Token ${tokenId} → ${action}`;
   if (isError) {
     text = `{red-fg}[ERROR] ${text}{/red-fg}`;
   }
@@ -112,8 +135,9 @@ const logAction = (tokenId, action, isError = false) => {
 // Keep track so we only schedule each NFT once
 const scheduledNFTs = new Set();
 
-async function startLoopsForNFT(nft, tribes, at, af, al) {
+async function startLoopsForNFT(info, nft, tribes, at, af, al) {
   const nftId = nft.id;
+  const resetTime = info.resetInterval.endAt;
 
   const now = Date.now();
   const tokenId = nft.tokenId;
@@ -143,14 +167,23 @@ async function startLoopsForNFT(nft, tribes, at, af, al) {
         trainBackoff = Math.min(trainBackoff * 2, BACKOFF_MAX);
         logAction(
           tokenId,
-          `TRAINING FAILED - RETRYING @ ${formatDateTime(when)}`,
+          `TRAINING FAILED → RETRYING @ ${formatDateTime(when)}`,
           true
         );
       }
     };
 
-    if ((at[nftId] || 0) > now) scheduleAt(at[nftId] + 1_000, trainLoop);
-    else trainLoop();
+    if ((at[nftId] || 0) > now) {
+      scheduleAt(at[nftId] + 1_000, trainLoop);
+      logAction(
+        tokenId,
+        `TRAINING IN PROGRESS → NEXT SCHEDULED @ ${formatDateTime(
+          at[nftId] + 1_000
+        )}`
+      );
+    } else {
+      trainLoop();
+    }
   }
 
   // FIGHT loop
@@ -161,7 +194,10 @@ async function startLoopsForNFT(nft, tribes, at, af, al) {
 
     const fightLoop = async () => {
       try {
-        if (nft.tribeFightsCount >= nft.maxTribeFights) return;
+        if (nft.tribeFightsCount >= nft.maxTribeFights) {
+          scheduleAt(resetTime + 1_000, fightLoop);
+          return;
+        }
         const next = await fightNft(nftId, opponent.id);
         logAction(tokenId, "FIGHT");
         redrawUI();
@@ -180,8 +216,17 @@ async function startLoopsForNFT(nft, tribes, at, af, al) {
       }
     };
 
-    if ((af[nftId] || 0) > now) scheduleAt(af[nftId] + 1_000, fightLoop);
-    else fightLoop();
+    if ((af[nftId] || 0) > now) {
+      scheduleAt(af[nftId] + 1_000, fightLoop);
+      logAction(
+        tokenId,
+        `FIGHTING IN PROGRESS → NEXT SCHEDULED @ ${formatDateTime(
+          af[nftId] + 1_000
+        )}`
+      );
+    } else {
+      fightLoop();
+    }
   }
 
   // LEVEL-UP loop
@@ -192,7 +237,14 @@ async function startLoopsForNFT(nft, tribes, at, af, al) {
 
     const levelLoop = async () => {
       try {
-        if (nft.xp < nft.requiredXp) return;
+        if (nft.xp < nft.requiredXp) {
+          scheduledNFTs.delete(`${nftId}-LEVEL_UP`);
+          logAction(
+            tokenId,
+            `Not enough XP to level up → will reschedule when XP is enough`
+          );
+          return;
+        }
         const next = await levelUpNft(nftId);
         logAction(tokenId, "LEVEL_UP");
         redrawUI();
@@ -210,15 +262,25 @@ async function startLoopsForNFT(nft, tribes, at, af, al) {
       }
     };
 
-    if ((al[nftId] || 0) > now) scheduleAt(al[nftId] + 1_000, levelLoop);
-    else levelLoop();
+    if ((al[nftId] || 0) > now) {
+      scheduleAt(al[nftId] + 1_000, levelLoop);
+      logAction(
+        tokenId,
+        `LEVEL UP TIMER IN PROGRESS → NEXT SCHEDULED @ ${formatDateTime(
+          al[nftId] + 1_000
+        )}`
+      );
+    } else {
+      levelLoop();
+    }
   }
 }
 
 // ─── UI Refresh ───────────────────────────────────────────────────────────────
 
 async function refreshUI() {
-  const [nfts, tribes, at, af, al] = await Promise.all([
+  const [info, nfts, tribes, at, af, al] = await Promise.all([
+    getInfo(),
     getAllNfts(),
     getTribes(),
     getActiveTrainings(),
@@ -256,7 +318,7 @@ async function refreshUI() {
 
   // schedule loops for any new NFTs
   for (const nft of nfts) {
-    await startLoopsForNFT(nft, tribes, at, af, al);
+    await startLoopsForNFT(info, nft, tribes, at, af, al);
   }
 
   screen.render();
