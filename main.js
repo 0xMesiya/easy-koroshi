@@ -155,7 +155,7 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
 
     const trainLoop = async () => {
       try {
-        const [nfts] = await getAllNfts();
+        const nfts = await getAllNfts();
         const freshNft = nfts.find((n) => n.id === nftId);
         if (!freshNft) {
           logAction(
@@ -204,7 +204,7 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
 
     const fightLoop = async () => {
       try {
-        const [nfts] = await getAllNfts();
+        const nfts = await getAllNfts();
         const freshNft = nfts.find((n) => n.id === nftId);
         if (!freshNft) {
           logAction(tokenId, `NFT NO LONGER FOUND → STOPPING THIS FIGHT LOOP`);
@@ -220,7 +220,7 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
         logAction(tokenId, "FIGHT");
         redrawUI();
         fightBackoff = BACKOFF_INITIAL;
-        scheduleAt(next, fightLoop);
+        scheduleAt(next + 1_000, fightLoop);
       } catch (err) {
         // schedule retry with backoff
         const when = Date.now() + fightBackoff;
@@ -255,7 +255,7 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
 
     const levelLoop = async () => {
       try {
-        const [nfts] = await getAllNfts();
+        const nfts = await getAllNfts();
         const freshNft = nfts.find((n) => n.id === nftId);
         if (!freshNft) {
           logAction(
@@ -267,10 +267,7 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
         }
         if (freshNft.xp < freshNft.requiredXp) {
           scheduledNFTs.delete(`${nftId}-LEVEL_UP`);
-          logAction(
-            tokenId,
-            `Not enough XP to level up → will reschedule when XP is enough`
-          );
+          // removed the log because this is checked a lot and it was spamming
           return;
         }
         const next = await levelUpNft(nftId);
