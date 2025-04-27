@@ -1,52 +1,34 @@
-import { getAllNfts } from "../api/fetchData.js";
-import {
-  getActiveFights,
-  getActiveLevelUps,
-  getActiveTrainings,
-} from "../api/status.js";
+import chalk from "chalk";
 
-const formatDateTime = (timestamp) => {
-  if (!timestamp) return "ready";
-  const date = new Date(timestamp);
-  const time = date.toLocaleTimeString();
-  const day = date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-  return `${time} (${day})`;
-};
-
-export const printStatusTable = async () => {
-  const [nfts, activeTrainings, activeFights, activeLevelUps] =
-    await Promise.all([
-      getAllNfts(),
-      getActiveTrainings(),
-      getActiveFights(),
-      getActiveLevelUps(),
-    ]);
-
-  const table = [];
+export const printNFTTable = (nfts) => {
+  console.log("\n");
+  console.log(chalk.bold.cyan("=== NFT STATUS ==="));
+  console.log(
+    chalk.bold(
+      `${pad("Token", 8)} ${pad("Level (XP)", 18)} ${pad("Fights", 12)} ${pad(
+        "Next Training",
+        20
+      )} ${pad("Next Fight", 20)} ${pad("Next Level Up", 20)}`
+    )
+  );
+  console.log(chalk.gray("-".repeat(98)));
 
   for (const nft of nfts) {
-    const nftId = nft.id;
-
-    table.push({
-      Token: nft.tokenId,
-      XP: `${nft.xp}/${nft.requiredXp}`,
-      Fights: `${nft.tribeFightsCount}/${nft.maxTribeFights}`,
-      Training: activeTrainings[nftId]
-        ? formatDateTime(activeTrainings[nftId])
-        : "ready",
-      Fight: activeFights[nftId]
-        ? formatDateTime(activeFights[nftId])
-        : "ready",
-      LevelUp: activeLevelUps[nftId]
-        ? formatDateTime(activeLevelUps[nftId])
-        : nft.xp >= nft.requiredXp
-        ? "ready"
-        : "waiting",
-    });
+    console.log(
+      `${pad(nft.tokenId, 8)} ${pad(nft.levelXp, 18)} ${pad(
+        nft.fights,
+        12
+      )} ${pad(nft.nextTraining, 20)} ${pad(nft.nextFight, 20)} ${pad(
+        nft.nextLevelUp,
+        20
+      )}`
+    );
   }
 
-  console.table(table);
+  console.log("\n");
+};
+
+const pad = (text, width) => {
+  text = String(text);
+  return text.length >= width ? text : text + " ".repeat(width - text.length);
 };

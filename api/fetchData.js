@@ -8,6 +8,10 @@ const baseHeaders = {
 export const apiGet = async (url) => {
   const res = await fetch(url, { headers: baseHeaders });
   const json = await res.json();
+  if (!res.ok) {
+    console.error("API Error:", json);
+    throw new Error(`API Error: ${json.message}`);
+  }
   return json.result.data;
 };
 
