@@ -3,7 +3,7 @@ import { getActiveFights } from "../api/status.js";
 import { formatDateTime } from "../utils/utils.js";
 
 export const checkShouldFight = async (nftId, resetTime) => {
-  const now = Date.now();
+  const now = new Date().getTime();
   const nfts = await getAllNfts();
   const freshNft = nfts.find((n) => n.id === nftId);
   // NO NFT FOUND

@@ -9,6 +9,8 @@ import {
 } from "./api/status.js";
 import { trainNft } from "./api/trainNft.js";
 import { checkShouldFight } from "./decision/shouldFight.js";
+import { checkShouldLevelUp } from "./decision/shouldLevelUp.js";
+import { checkShouldTrain } from "./decision/shouldTrain.js";
 import { printNFTTable } from "./utils/table.js";
 import { scheduleAt } from "./utils/timer.js";
 import { formatDateTime, logDateTime } from "./utils/utils.js";
@@ -57,20 +59,30 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
 
     const trainLoop = async () => {
       try {
-        const nfts = await getAllNfts();
-        const freshNft = nfts.find((n) => n.id === nftId);
+        const { freshNft, shouldTrain, scheduleFor, reason } =
+          await checkShouldTrain(nftId, resetTime);
+
         if (!freshNft) {
-          logAction(
-            tokenId,
-            `NFT NO LONGER FOUND → STOPPING THIS TRAINING LOOP`
-          );
+          logAction(tokenId, reason);
           scheduledNFTs.delete(TRAIN_KEY);
+          await redrawUI();
           return;
         }
-        const next = await trainNft(nftId);
-        logAction(tokenId, "TRAIN");
-        trainBackoff = BACKOFF_INITIAL; // reset on success
-        scheduleAt(next, trainLoop);
+
+        if (!shouldTrain) {
+          logAction(tokenId, reason);
+          scheduleAt(scheduleFor, trainLoop);
+          return;
+        }
+
+        if (scheduleFor <= now) {
+          const next = await trainNft(nftId);
+          logAction(tokenId, reason);
+          trainBackoff = BACKOFF_INITIAL; // reset on success
+          scheduleAt(next, trainLoop);
+          await redrawUI();
+          return;
+        }
       } catch (err) {
         // schedule retry with backoff
         const when = Date.now() + trainBackoff;
@@ -111,7 +123,6 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
         if (!freshNft) {
           logAction(tokenId, reason);
           scheduledNFTs.delete(FIGHT_KEY);
-          console.log("from !freshNft");
           await redrawUI();
           return;
         }
@@ -126,9 +137,9 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
           const next = await fightNft(nftId, opponent.id);
           logAction(tokenId, reason);
           fightBackoff = BACKOFF_INITIAL; // reset on success
-          scheduleAt(next + 1000, fightLoop);
+          scheduleAt(next, fightLoop);
           await redrawUI();
-          console.log("from scheduleFor <= now");
+          return;
         }
       } catch (err) {
         // schedule retry with backoff
@@ -153,25 +164,34 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
 
     const levelLoop = async () => {
       try {
-        const nfts = await getAllNfts();
-        const freshNft = nfts.find((n) => n.id === nftId);
+        const {
+          freshNft,
+          shouldLevelUp,
+          scheduleFor,
+          reason = await checkShouldLevelUp(nftId, resetTime),
+        } = await checkShouldLevelUp(nftId, resetTime);
+
         if (!freshNft) {
-          logAction(
-            tokenId,
-            `NFT NO LONGER FOUND → STOPPING THIS LEVEL UP LOOP`
-          );
+          logAction(tokenId, reason);
           scheduledNFTs.delete(LEVEL_KEY);
+          await redrawUI();
           return;
         }
-        if (freshNft.xp < freshNft.requiredXp) {
-          scheduledNFTs.delete(`${nftId}-LEVEL_UP`);
-          // removed the log because this is checked a lot and it was spamming
+
+        if (!shouldLevelUp) {
+          logAction(tokenId, reason);
+          scheduleAt(scheduleFor, levelLoop);
           return;
         }
-        const next = await levelUpNft(nftId);
-        logAction(tokenId, "LEVEL_UP");
-        levelBackoff = BACKOFF_INITIAL;
-        scheduleAt(next, levelLoop);
+
+        if (scheduleFor <= now) {
+          const next = await levelUpNft(nftId);
+          logAction(tokenId, reason);
+          fightBackoff = BACKOFF_INITIAL; // reset on success
+          scheduleAt(next, fightLoop);
+          await redrawUI();
+          return;
+        }
       } catch (err) {
         const when = Date.now() + levelBackoff;
         scheduleAt(when, levelLoop);
@@ -183,18 +203,7 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
         );
       }
     };
-
-    if ((al[nftId] || 0) > now) {
-      scheduleAt(al[nftId] + 1_000, levelLoop);
-      logAction(
-        tokenId,
-        `LEVEL UP TIMER IN PROGRESS → NEXT SCHEDULED @ ${formatDateTime(
-          al[nftId] + 1_000
-        )}`
-      );
-    } else {
-      levelLoop();
-    }
+    levelLoop();
   }
 }
 

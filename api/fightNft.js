@@ -14,6 +14,6 @@ export const fightNft = async (nftId, tribeId) => {
   );
 
   const json = await res.json();
-  const endAt = json?.[0]?.result?.data?.endAt;
+  const endAt = json?.result?.data?.endAt;
   return endAt ? new Date(endAt).getTime() + 1000 : null;
 };
