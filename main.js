@@ -198,7 +198,9 @@ async function startLoopsForNFT(info, nft, tribes, at, af, al) {
         levelBackoff = Math.min(levelBackoff * 2, BACKOFF_MAX);
         logAction(
           tokenId,
-          `LEVEL UP FAILED - RETRYING @ ${formatDateTime(when)}`,
+          `LEVEL UP FAILED - RETRYING @ ${formatDateTime(
+            when
+          )} \n[ERR] ${err.toString()}`,
           true
         );
       }
